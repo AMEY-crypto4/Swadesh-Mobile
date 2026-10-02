@@ -8,10 +8,16 @@ an **admin console**, an **agent workspace**, a **dialer** (preview / progressiv
 > **Telephony is simulated.** There is no carrier or media server. A demo engine generates inbound calls, dials leads, and plays "bot" agents so every screen has
 > live, believable data. The UI says so (banner) and anything that genuinely needs media (listen / whisper / barge) is shown as *not available*, with the reason.
 
+> **New here? Read the [User Manual](docs/USER-MANUAL.md)** — what each role can do and exactly where to do it, plus API, privacy and troubleshooting guides.
+
 ## Run it
 
 Requires Node 20+. **No database install needed** — with no `MYSQL_URL`/`MONGO_URL` set, the API boots embedded MySQL 8 + MongoDB, migrates and seeds
 (first run downloads the binaries, ~1–2 min; afterwards ~20 s). Data is ephemeral in this mode.
+
+**Windows one-click:** double-click `Start-Demo.bat` (stops any old copy, starts everything, opens Chrome and Edge on **http://localhost:4000** when ready; `Stop-Demo.bat` stops it).
+
+Or from a terminal:
 
 ```bash
 npm install
@@ -125,7 +131,7 @@ Webhooks are signed `X-Swadesh-Signature: t=<unix>,v1=<hmac_sha256(secret, "t.bo
 ## Tests
 
 ```bash
-npm test          # 29 tests: unit + integration + concurrency, against real embedded MySQL/Mongo
+npm test          # 30 tests: unit + integration + concurrency, against real embedded MySQL/Mongo
 npm run typecheck
 ```
 

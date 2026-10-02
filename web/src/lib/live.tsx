@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { tokenStore } from './api';
 import { useAuth } from './auth';
 
@@ -35,8 +35,50 @@ export function useNow(ms = 1000) {
   return now;
 }
 
+// ------------------------------------------------------------------ raw frame tap (powers the Platform showcase page)
+export interface FeedItem { n: number; t: number; type: string; seq: number | null; bytes: number }
+export interface FeedSnapshot { items: FeedItem[]; counts: Record<string, number>; total: number; bytes: number; since: number; recent: number[] }
+
+const feed = (() => {
+  let n = 0;
+  const base = { items: [] as FeedItem[], counts: {} as Record<string, number>, total: 0, bytes: 0, since: Date.now(), times: [] as number[] };
+  let snap: FeedSnapshot = { items: [], counts: {}, total: 0, bytes: 0, since: base.since, recent: [] };
+  const subs = new Set<() => void>();
+  let pending = false;
+  const publish = () => {
+    if (pending) return; // coalesce: a burst of frames costs one React render, not one per frame
+    pending = true;
+    setTimeout(() => {
+      pending = false;
+      const now = Date.now();
+      base.times = base.times.filter((t) => t > now - 30_000);
+      const recent = Array.from({ length: 30 }, (_, i) => base.times.filter((t) => t > now - (30 - i) * 1000 && t <= now - (29 - i) * 1000).length);
+      snap = { items: base.items.slice(0, 40), counts: { ...base.counts }, total: base.total, bytes: base.bytes, since: base.since, recent };
+      subs.forEach((f) => f());
+    }, 250);
+  };
+  return {
+    push(type: string, seq: number | null, bytes: number) {
+      const t = Date.now();
+      base.items.unshift({ n: ++n, t, type, seq, bytes }); if (base.items.length > 60) base.items.pop();
+      base.counts[type] = (base.counts[type] ?? 0) + 1; base.total++; base.bytes += bytes; base.times.push(t);
+      publish();
+    },
+    reset() { base.items = []; base.counts = {}; base.total = 0; base.bytes = 0; base.since = Date.now(); base.times = []; publish(); },
+    subscribe(f: () => void) { subs.add(f); return () => { subs.delete(f); }; },
+    get: () => snap,
+  };
+})();
+export const useLiveFeed = () => useSyncExternalStore(feed.subscribe, feed.get);
+
+/** Lets the showcase page demonstrate failure handling for real: it genuinely cuts the socket. */
+export const liveControl = {
+  drop: (_ms: number) => {},
+  resync: () => {},
+};
+
 export function LiveProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [state, setState] = useState<LiveState>(empty);
   const seq = useRef(0);
 
@@ -45,7 +87,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let ws: WebSocket | null = null;
     let closed = false;
     let attempt = 0;
+    let blockedUntil = 0;
     let retry: ReturnType<typeof setTimeout>;
+    feed.reset();
+
+    liveControl.drop = (ms) => { blockedUntil = Date.now() + ms; ws?.close(4000, 'simulated network drop'); };
+    liveControl.resync = () => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resync' })); };
 
     const connect = () => {
       setState((s) => ({ ...s, connection: attempt === 0 ? 'connecting' : 'reconnecting' }));
@@ -54,6 +101,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       ws.onmessage = (ev) => {
         const m = JSON.parse(ev.data);
         const now = Date.now();
+        feed.push(m.type, typeof m.seq === 'number' ? m.seq : null, typeof ev.data === 'string' ? ev.data.length : 0);
         if (m.type === 'ready') { attempt = 0; return setState((s) => ({ ...s, connection: 'live', lastMessageAt: now })); }
         if (m.type === 'snapshot' && m.agents) seq.current = m.seq;
         // Sequence-gap detection: a missed delta means local state is wrong, so ask the server for a fresh snapshot.
@@ -63,17 +111,19 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         }
         setState((s) => reduce(s, m, now));
       };
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         if (closed) return;
+        if (ev.code === 4401) { logout(); return; } // token rejected / seat reclaimed: reconnecting would loop forever
         setState((s) => ({ ...s, connection: 'reconnecting' }));
         attempt++;
-        retry = setTimeout(connect, Math.min(15000, 1000 * 2 ** Math.min(attempt, 4)) + Math.random() * 500);
+        const backoff = Math.min(15000, 1000 * 2 ** Math.min(attempt, 4)) + Math.random() * 500;
+        retry = setTimeout(connect, Math.max(backoff, blockedUntil - Date.now()));
       };
       ws.onerror = () => ws?.close();
     };
     connect();
     return () => { closed = true; clearTimeout(retry); ws?.close(); setState(empty); seq.current = 0; };
-  }, [user?.id]);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const value = useMemo(() => state, [state]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -87,6 +137,7 @@ function reduce(s: LiveState, m: any, now: number): LiveState {
       return { ...base, me: m, simulated: m.simulated ?? s.simulated };
     case 'me': return { ...base, me: m };
     case 'agent.state': return { ...base, agents: s.agents.some((a) => a.id === m.agent.id) ? s.agents.map((a) => (a.id === m.agent.id ? m.agent : a)) : [...s.agents, m.agent] };
+    case 'agent.removed': return { ...base, agents: s.agents.filter((a) => a.id !== m.id) };
     case 'queue.counts': return { ...base, queues: m.queues };
     case 'call.update': return { ...base, calls: s.calls.some((c) => c.id === m.call.id) ? s.calls.map((c) => (c.id === m.call.id ? m.call : c)) : [...s.calls, m.call] };
     case 'call.end': return { ...base, calls: s.calls.filter((c) => c.id !== m.callId) };

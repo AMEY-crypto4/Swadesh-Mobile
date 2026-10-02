@@ -76,7 +76,7 @@ export class TenantRuntime {
     return p;
   }
 
-  private emit(msg: Record<string, unknown>) {
+  private emit(msg: { type: string } & Record<string, unknown>) {
     hub.broadcast(this.companyId, { ...msg, seq: ++this.seq });
   }
 
@@ -89,7 +89,7 @@ export class TenantRuntime {
       await db.exec("UPDATE calls SET status='failed', ended_at=NOW(3), notes='Interrupted by server restart' WHERE company_id=? AND status IN ('queued','ringing','in_progress')", [this.companyId]);
     }
     const users = await db.rows<{ id: number; name: string; extension: string | null; skills: string[] | null; is_bot: number }>(
-      "SELECT id, name, extension, skills, is_bot FROM users WHERE company_id=? AND role='agent' AND status='active'", [this.companyId]);
+      "SELECT id, name, extension, skills, is_bot FROM users WHERE company_id=? AND role='agent' AND status='active' AND is_shared_demo=0", [this.companyId]);
     const qs = await db.rows<Record<string, any>>('SELECT * FROM queues WHERE company_id=? AND active=1', [this.companyId]);
     const members = await db.rows<{ queue_id: number; user_id: number }>('SELECT queue_id, user_id FROM queue_members WHERE company_id=?', [this.companyId]);
     const camps = await db.rows<Record<string, any>>("SELECT * FROM campaigns WHERE company_id=? AND status <> 'completed'", [this.companyId]);
@@ -139,7 +139,7 @@ export class TenantRuntime {
         callsToday: Number(pa?.n ?? 0), talkSecsToday: Number(pa?.talk ?? 0),
       });
     });
-    for (const id of [...this.agents.keys()]) if (!seenA.has(id)) this.agents.delete(id);
+    for (const id of [...this.agents.keys()]) if (!seenA.has(id)) { this.agents.delete(id); this.emit({ type: 'agent.removed', id }); }
 
     // campaigns
     const seenC = new Set<number>();
@@ -361,12 +361,12 @@ export class TenantRuntime {
   }
   private wrapMeta = new Map<number, { wrapStarted: number; call: RtCall }>();
 
-  private async finishWrap(agent: RtAgent, call: RtCall, disposition: string, notes: string | undefined, wrapSecs: number) {
+  private async finishWrap(agent: RtAgent, call: RtCall, disposition: string | null, notes: string | undefined, wrapSecs: number) {
     if (agent.wrapCallId !== call.id) return;
     agent.wrapCallId = undefined; this.wrapMeta.delete(call.id);
     await this.persist(call, { disposition, notes: notes?.slice(0, 500) ?? null, wrap_secs: Math.min(wrapSecs, 65535) });
     this.evt(call, 'call.disposition', { disposition });
-    if (call.direction === 'outbound' && call.leadId) await this.applyRules(call, [disposition, 'completed']);
+    if (call.direction === 'outbound' && call.leadId) await this.applyRules(call, [disposition ?? 'completed', 'completed']);
     void enqueueWebhook(this.companyId, 'call.completed', { call_id: call.id, direction: call.direction, queue_id: call.queueId, campaign_id: call.campaignId, agent_id: agent.id, from: call.from, to: call.to, disposition, talk_secs: Math.round((Date.now() - (call.answeredAt ?? Date.now())) / 1000) }).catch(() => {});
     if (agent.state === 'wrap_up') this.setAgent(agent, 'available');
     this.emit({ type: 'queue.counts', queues: [...this.queues.values()].map((q) => this.queueView(q)) });
@@ -417,6 +417,29 @@ export class TenantRuntime {
       const call = await this.newCall({ direction: 'inbound', queueId: q.id, campaignId: null, leadId: null, from: indianMobile(Math.random), to: '+912240009999', state: 'queued' });
       q.offered++;
       this.assignRinging(call, a);
+    });
+  }
+
+  hasAgent(userId: number) { return this.agents.has(userId); }
+
+  /**
+   * Release a guest seat. Refuses (returns false) while the agent is on a live call so a customer is never dropped;
+   * a pending wrap-up is closed with no disposition and a note, and a previewed lead goes back to the pool.
+   */
+  agentRetire(userId: number) {
+    return this.run(async () => {
+      const a = this.agents.get(userId);
+      if (!a) return true;
+      if (a.state === 'on_call' || a.state === 'ringing') return false;
+      if (a.wrapCallId) {
+        const meta = this.wrapMeta.get(a.wrapCallId);
+        if (meta) await this.finishWrap(a, meta.call, null, 'Auto-closed: agent session ended before a disposition was chosen', Math.round((Date.now() - meta.wrapStarted) / 1000));
+      }
+      if (a.preview) await this.db.exec("UPDATE leads SET status='new', attempts=GREATEST(attempts,1)-1 WHERE company_id=? AND id=?", [this.companyId, a.preview.leadId]);
+      const t = this.offlineTimers.get(userId); if (t) { clearTimeout(t); this.offlineTimers.delete(userId); }
+      this.agents.delete(userId);
+      this.emit({ type: 'agent.removed', id: userId });
+      return true;
     });
   }
 
@@ -677,6 +700,7 @@ class RuntimeManager {
     hub.attach(server, {
       snapshot: (a: AuthCtx) => (a.role === 'agent' ? this.get(a.companyId).me(a.userId) : this.get(a.companyId).snapshot()),
       presence: (a: AuthCtx, online: boolean) => void this.get(a.companyId).presence(a.userId, online),
+      valid: (a: AuthCtx) => a.role !== 'agent' || this.get(a.companyId).hasAgent(a.userId),
     });
     let busy = false;
     this.timers.push(setInterval(async () => {

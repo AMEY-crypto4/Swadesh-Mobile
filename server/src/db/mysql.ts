@@ -16,6 +16,9 @@ export async function connectMysql(uri: string) {
     connectionLimit: 20,
     dateStrings: false,
   });
+  // Pin the *session* time zone to UTC. `timezone: 'Z'` only tells the driver how to read DATETIMEs; without this,
+  // NOW()/CURRENT_TIMESTAMP default to the MySQL server's local zone and every DB-stamped row is skewed in the UI.
+  (pool as unknown as { pool: { on(e: string, f: (c: { query(sql: string): void }) => void): void } }).pool.on('connection', (c) => c.query("SET time_zone = '+00:00'"));
   await pool.query('SELECT 1');
   return pool;
 }

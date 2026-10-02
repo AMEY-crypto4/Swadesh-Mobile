@@ -63,7 +63,7 @@ function LiveMap() {
   );
 }
 
-interface TeamUser { id: number; name: string; email: string; role: string; status: string; extension: string | null; skills: string[] | null; is_bot: number }
+interface TeamUser { id: number; name: string; email: string; role: string; status: string; extension: string | null; skills: string[] | null; is_bot: number; is_shared_demo: number }
 
 function Team() {
   const { user } = useAuth();
@@ -85,7 +85,7 @@ function Team() {
         <tbody className="divide-y divide-slate-100">
           {q.data?.map((u) => (
             <tr key={u.id}>
-              <td className="td font-medium">{u.name}</td><td className="td text-slate-500">{u.email}</td><td className="td">{title(u.role)}{u.is_bot ? <span className="ml-1 text-xs text-slate-400">(sim)</span> : null}</td>
+              <td className="td font-medium">{u.name}</td><td className="td text-slate-500">{u.email}</td><td className="td">{title(u.role)}{u.is_bot ? <span className="ml-1 text-xs text-slate-400">(sim)</span> : null}{u.is_shared_demo ? <span className="ml-1" title="Template for the shared Normal User login: each sign-in gets a private seat cloned from this account"><Badge tone="green">shared login</Badge></span> : null}</td>
               <td className="td">{u.extension ?? '—'}</td><td className="td">{u.skills?.join(', ') || '—'}</td>
               <td className="td"><Badge tone={u.status === 'active' ? 'green' : 'slate'}>{title(u.status)}</Badge></td>
               <td className="td text-right">{isAdmin && u.id !== user?.id && u.role !== 'admin' && <Button variant="ghost" className="!py-1 text-xs" onClick={() => toggle.mutate(u)}>{u.status === 'active' ? 'Disable' : 'Enable'}</Button>}</td>

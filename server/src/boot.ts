@@ -10,6 +10,7 @@ import { runtime } from './engine/runtime.js';
 import { hub } from './engine/hub.js';
 import { startWebhookWorker, stopWebhookWorker } from './services/webhooks.js';
 import { startRetentionWorker } from './services/privacy.js';
+import { startSessionReaper, stopSessionReaper } from './services/sessions.js';
 
 export interface Stack { server: Server; port: number; stop: () => Promise<void> }
 
@@ -29,12 +30,14 @@ export async function boot(opts: { port?: number; seed?: boolean; scale?: boolea
   await runtime.start(server);
   startWebhookWorker();
   startRetentionWorker();
+  startSessionReaper();
   const port = await new Promise<number>((resolve) => server.listen(opts.port ?? config.port, () => resolve((server.address() as { port: number }).port)));
 
   return {
     server, port,
     stop: async () => {
       stopWebhookWorker();
+      stopSessionReaper();
       await runtime.stop();
       hub.close();
       await new Promise((r) => server.close(r));

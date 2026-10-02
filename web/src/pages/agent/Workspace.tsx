@@ -34,7 +34,7 @@ export function AgentWorkspace() {
       <SimulationBanner />
       <header className="flex flex-wrap items-center justify-between gap-3 bg-ink-900 px-4 py-2.5 text-white">
         <div className="flex items-center gap-2"><Headphones className="h-5 w-5 text-brand-500" aria-hidden /><span className="font-semibold">Agent workspace</span><span className="text-sm text-slate-400">· {company?.name}</span></div>
-        <div className="flex items-center gap-3"><ConnectionChip /><span className="text-sm">{user?.name}</span><button onClick={logout} className="flex items-center gap-1 text-xs text-slate-300 hover:text-white"><LogOut className="h-3.5 w-3.5" aria-hidden />Sign out</button></div>
+        <div className="flex items-center gap-3"><ConnectionChip /><span className="text-sm">{user?.name}</span>{user?.seat && <span title="Your own private agent seat on the shared Normal User login — other people signed in as Normal User cannot see or affect it" className="rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-200">private seat</span>}<button onClick={logout} className="flex items-center gap-1 text-xs text-slate-300 hover:text-white"><LogOut className="h-3.5 w-3.5" aria-hidden />Sign out</button></div>
       </header>
 
       <main className="mx-auto grid max-w-6xl gap-4 p-4 lg:grid-cols-[18rem_1fr]">

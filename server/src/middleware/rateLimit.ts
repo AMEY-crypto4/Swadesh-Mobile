@@ -31,6 +31,7 @@ export class SlidingWindowLimiter {
   }
 }
 
+const LOGIN_LIMIT = Number(process.env.LOGIN_RATE_LIMIT ?? 20); // per IP per minute
 const apiLimiter = new SlidingWindowLimiter(60_000);
 const loginLimiter = new SlidingWindowLimiter(60_000);
 
@@ -58,7 +59,7 @@ export function apiKeyRateLimit(getLimit: (req: Request) => number) {
 
 export function loginRateLimit(req: Request, res: Response, next: NextFunction) {
   try {
-    apply(res, loginLimiter.check(`ip:${req.ip}`, 20));
+    apply(res, loginLimiter.check(`ip:${req.ip}`, LOGIN_LIMIT));
     next();
   } catch (e) {
     next(e);

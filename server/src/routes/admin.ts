@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { tdb } from '../lib/tenant.js';
+import { tdb, type TenantDb } from '../lib/tenant.js';
 import { audit } from '../lib/audit.js';
 import { mcol } from '../db/mongo.js';
 import { HttpError, badRequest, notFound, wrap } from '../lib/errors.js';
@@ -26,10 +26,23 @@ function setClause(data: Record<string, unknown>, allowed: string[]) {
   return { sql: cols.map((c) => `${c}=?`).join(', '), params: cols.map((c) => (typeof data[c] === 'object' && data[c] !== null ? JSON.stringify(data[c]) : data[c]) as never) };
 }
 
+/**
+ * Optimistic concurrency for configuration edited by several admins at once.
+ * A client that sends the `version` it loaded only succeeds if nobody else changed the row since; otherwise 409.
+ * Clients that omit `version` still bump it, so a later stale editor is detected.
+ */
+async function bumpVersion(db: TenantDb, table: 'queues' | 'campaigns', id: number, version?: number) {
+  const guarded = version !== undefined;
+  const r = await db.exec(`UPDATE ${table} SET version=version+1 WHERE company_id=? AND id=?${guarded ? ' AND version=?' : ''}`, guarded ? [db.companyId, id, version] : [db.companyId, id]);
+  if (r.affectedRows) return;
+  if (!(await db.one(`SELECT id FROM ${table} WHERE company_id=? AND id=?`, [db.companyId, id]))) throw notFound(table === 'queues' ? 'Queue' : 'Campaign');
+  throw new HttpError(409, 'Someone else changed this while you were editing. Reload to see their changes, then re-apply yours.', 'version_conflict');
+}
+
 // ------------------------------------------------------------------ users
 adminRouter.get('/users', wrap(async (req, res) => {
   const a = ctx(req);
-  res.json(await tdb(a.companyId).rows("SELECT id, name, email, role, status, extension, skills, is_bot FROM users WHERE company_id=? ORDER BY FIELD(role,'admin','supervisor','agent'), name", [a.companyId]));
+  res.json(await tdb(a.companyId).rows("SELECT id, name, email, role, status, extension, skills, is_bot, is_shared_demo FROM users WHERE company_id=? AND is_session=0 ORDER BY FIELD(role,'admin','supervisor','agent'), name", [a.companyId]));
 }));
 
 const userCreate = z.object({
@@ -126,10 +139,10 @@ adminRouter.post('/queues', adminOnly, wrap(async (req, res) => {
 }));
 
 adminRouter.patch('/queues/:id', adminOnly, wrap(async (req, res) => {
-  const a = ctx(req); const id = intParam(req.params.id); const b = queueSchema.partial().parse(req.body);
+  const a = ctx(req); const id = intParam(req.params.id); const b = queueSchema.partial().extend({ version: z.number().int().positive().optional() }).parse(req.body);
   const db = tdb(a.companyId);
-  if (!(await db.one('SELECT id FROM queues WHERE company_id=? AND id=?', [a.companyId, id]))) throw notFound('Queue');
-  const { members, ...rest } = b;
+  const { members, version, ...rest } = b;
+  await bumpVersion(db, 'queues', id, version);
   if (Object.keys(rest).length) { const s = setClause(rest, ['name', 'strategy', 'sla_seconds', 'max_wait_seconds', 'wrap_up_seconds', 'required_skill', 'recording_consent_mode', 'active']); await db.exec(`UPDATE queues SET ${s.sql} WHERE company_id=? AND id=?`, [...s.params, a.companyId, id]); }
   if (members) await setMembers(a.companyId, id, members);
   await audit(a.companyId, a.email, 'queue.updated', `queue:${id}`, b);
@@ -173,11 +186,11 @@ adminRouter.post('/campaigns', adminOnly, wrap(async (req, res) => {
 }));
 
 adminRouter.patch('/campaigns/:id', adminOnly, wrap(async (req, res) => {
-  const a = ctx(req); const id = intParam(req.params.id); const b = campaignSchema.partial().parse(req.body); const db = tdb(a.companyId);
+  const a = ctx(req); const id = intParam(req.params.id); const { version, ...b } = campaignSchema.partial().extend({ version: z.number().int().positive().optional() }).parse(req.body); const db = tdb(a.companyId);
   if (b.queue_id && !(await db.one('SELECT id FROM queues WHERE company_id=? AND id=?', [a.companyId, b.queue_id]))) throw badRequest('Unknown queue');
   const s = setClause(b, Object.keys(campaignSchema.shape));
-  const r = await db.exec(`UPDATE campaigns SET ${s.sql} WHERE company_id=? AND id=?`, [...s.params, a.companyId, id]);
-  if (!r.affectedRows) throw notFound('Campaign');
+  await bumpVersion(db, 'campaigns', id, version);
+  await db.exec(`UPDATE campaigns SET ${s.sql} WHERE company_id=? AND id=?`, [...s.params, a.companyId, id]);
   await audit(a.companyId, a.email, 'campaign.updated', `campaign:${id}`, b);
   await runtime.reload(a.companyId);
   res.json({ ok: true });
@@ -195,7 +208,7 @@ adminRouter.post('/campaigns/:id/status', adminOnly, wrap(async (req, res) => {
     const [{ m }] = await db.rows<{ m: number }>('SELECT COUNT(*) m FROM queue_members WHERE company_id=? AND queue_id=?', [a.companyId, c.queue_id]);
     if (!m) throw new HttpError(409, 'Cannot start: the campaign queue has no agents assigned.', 'no_agents');
   }
-  await db.exec('UPDATE campaigns SET status=? WHERE company_id=? AND id=?', [status, a.companyId, id]);
+  await db.exec('UPDATE campaigns SET status=?, version=version+1 WHERE company_id=? AND id=?', [status, a.companyId, id]);
   await audit(a.companyId, a.email, `campaign.${status}`, `campaign:${id}`);
   await runtime.reload(a.companyId);
   res.json({ ok: true, status });
@@ -205,7 +218,7 @@ adminRouter.put('/campaigns/:id/rules', adminOnly, wrap(async (req, res) => {
   const a = ctx(req); const id = intParam(req.params.id); const db = tdb(a.companyId);
   const rules = z.array(z.object({ outcome: z.string().min(2).max(30), action: z.enum(['retry_after', 'mark_done', 'schedule_callback', 'add_to_dnc']), action_param: z.number().int().min(1).max(10080).nullable() })).max(30).parse(req.body);
   for (const r of rules) if ((r.action === 'retry_after' || r.action === 'schedule_callback') && !r.action_param) throw badRequest(`Rule "${r.outcome}" needs a minutes value`);
-  if (!(await db.one('SELECT id FROM campaigns WHERE company_id=? AND id=?', [a.companyId, id]))) throw notFound('Campaign');
+  await bumpVersion(db, 'campaigns', id, req.query.version === undefined ? undefined : Number(req.query.version));
   await db.tx(async (t) => {
     await t.exec('DELETE FROM dialer_rules WHERE company_id=? AND campaign_id=?', [a.companyId, id]);
     let p = 1;

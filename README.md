@@ -18,20 +18,40 @@ npm install
 npm run dev:all        # API on :4000 (+ /ws), web on http://localhost:5173
 ```
 
-Open <http://localhost:5173> and use the one-click demo buttons on the login page (password for every user: `Demo@1234`).
+Open <http://localhost:5173>, pick a company, then click **Sign in as Admin** or **Sign in as Normal user** (password for every demo login: `Demo@1234`).
 
-| Tenant | Admin | Supervisor | Agent (human, you) |
+| Company | Admin | Normal user | Supervisor (read-only monitoring) |
 |---|---|---|---|
-| Aarav Insurance Services (30k calls) | admin@aarav.test | supervisor@aarav.test | agent@aarav.test |
-| Zenith Collections (12k calls) | admin@zenith.test | supervisor@zenith.test | agent@zenith.test |
-| Kaveri Healthcare (6k calls, recordings expire at 30 days) | admin@kaveri.test | supervisor@kaveri.test | agent@kaveri.test |
+| Aarav Insurance Services (30k calls) | `admin@aarav.test` | `user@aarav.test` | `supervisor@aarav.test` |
+| Zenith Collections (12k calls) | `admin@zenith.test` | `user@zenith.test` | `supervisor@zenith.test` |
+| Kaveri Healthcare (6k calls, recordings expire at 30 days) | `admin@kaveri.test` | `user@kaveri.test` | `supervisor@kaveri.test` |
 
-Other agents (e.g. *Amit Deshmukh*) are simulated bots. Try this:
+### Two roles, built for many people at once
 
-1. Sign in as **agent@aarav.test** → *Available* → **Simulate an incoming call** → Answer → *Pause recording* (note the one-time token) → *Resume* → End → pick a disposition.
-2. In another window sign in as **supervisor@aarav.test**: watch the wallboard, agent map and queue counts move in real time.
-3. **admin@aarav.test** → *Developer* → *API reference & try-it* with the seeded key `swk_live_aarav_demo_7f3a9c1e5b2d4068a1f8` (same pattern for `zenith` / `kaveri`: see `server/src/db/seed.ts`).
-4. Sign in to *Zenith* and confirm none of Aarav's data is visible anywhere.
+* **Admin** — the whole console: live wallboard, queues, campaigns & dialer rules, reports, API keys & webhooks, privacy tools, audit log and the **Platform showcase**.
+* **Normal user** — the agent workspace. This is a *shared* login, but **every sign-in gets its own private agent seat** (own state machine, calls, history and WebSocket channel). Ten people can be "Normal user" at once and never see or disturb each other; seats are reclaimed on sign-out or after 10 idle minutes, and if a company's seats (25) are all taken you are told so instead of sharing someone's session.
+* Several admins can work simultaneously too: queue and campaign edits use **optimistic locking**, so if two admins edit the same record the second save is rejected ("someone else changed this") rather than silently overwriting.
+
+Other agents (e.g. *Amit Deshmukh*) are simulated bots.
+
+## Presenting it: how to show each JD requirement live
+
+Sign in as **Admin**, open **Platform showcase** (left nav). Every number on it is measured from the running system.
+
+| JD says | Show | Where |
+|---|---|---|
+| Node.js + TypeScript production APIs | Node version, memory, event-loop lag, per-route p50/p95/p99, requests/s | Showcase → *Node.js API* |
+| Real-time with raw WebSockets | Live frame tap (type, seq, bytes), frames/s, who is connected. Click **Cut the connection for 8 s**: the header chip turns to *"Reconnecting — data may be stale"*, then it reconnects and resyncs | Showcase → *WebSockets* |
+| React + TypeScript, heavy client | React version, Profiler commits/avg render time while frames stream in; the wallboard and agent map updating without reloads | Showcase → *React*; Wallboard; Agents |
+| MySQL + MongoDB, indexes, 100k+ rows | Row counts per store, **Run benchmarks** (ms + the index chosen by `EXPLAIN`), **Start load test** (from the server or the browser; p50/p95/p99, errors) | Showcase → *Heavy-data backend* |
+| Multi-tenant rigor | **Run isolation probes**: tries to read other companies' rows through the data layer and shows each attempt rejected; sign in as Zenith and see none of Aarav's data | Showcase → *Multi-tenant*; Login |
+| Truthful interfaces | The real / simulated / unavailable register, the disabled *Listen · Whisper · Barge* control with its reason, the simulation banner, stale-data chip | Showcase → *Truthful UI*; Agents |
+| Dialer rules, queue strategies, campaigns | Start/pause a campaign, edit rules, watch predictive pacing throttle to 1:1 at the abandon cap | Campaigns → campaign detail; Wallboard |
+| SMS & voice API, webhooks, API keys, rate limits | Create a key, **API reference & try-it** (watch `X-RateLimit-*` and the `429`), webhook delivery log with retries | Developer |
+| Privacy & compliance | As *Normal user*: Simulate an incoming call → Pause recording (one-time token) → Resume; then Privacy → consent log, retention preview, erasure, exports | Agent workspace; Privacy |
+| Many users, no collisions | Open a second browser/private window as *Normal user*; watch *Who is connected* gain a seat and see that changing its status moves only its own card | Showcase → *WebSockets*; Agents |
+
+Quick 3-minute path: Login → Wallboard (live) → Agent workspace in a second window (simulate a call, pause recording) → Showcase (cut the connection, run benchmarks, load test, isolation probes) → Developer try-it (hit the rate limit).
 
 ### With real databases (Docker)
 
@@ -57,7 +77,7 @@ npm run dev:all
 | SMS & voice APIs, webhooks, API keys, strict rate limits | `server/src/routes/v1.ts`, `middleware/apiKeyAuth.ts`, `middleware/rateLimit.ts`, `services/webhooks.ts` |
 | Privacy: consent prompts, hard pause/resume tokens, retention/deletion, exports | `server/src/services/privacy.ts`, `web/src/pages/admin/Privacy.tsx` |
 | **Multi-tenant rigor** | see below |
-| **Truthful interfaces** | `Unavailable` component, simulation banner, connection chip, disabled actions that state why, no optimistic fake success |
+| **Truthful interfaces** | `Unavailable` component, simulation banner, connection chip, disabled actions that state why, capability register (`/api/system/capabilities`), no optimistic fake success |
 | **Scale testing** | `npm run seed:scale` + the numbers below + an `EXPLAIN` test that fails on any full scan |
 | Migrations & safe rollout | forward-only, ordered, idempotent SQL migrations tracked in `schema_migrations` (`db/migrate.ts`) |
 
@@ -105,7 +125,7 @@ Webhooks are signed `X-Swadesh-Signature: t=<unix>,v1=<hmac_sha256(secret, "t.bo
 ## Tests
 
 ```bash
-npm test          # 20 tests: unit + integration against real embedded MySQL/Mongo
+npm test          # 29 tests: unit + integration + concurrency, against real embedded MySQL/Mongo
 npm run typecheck
 ```
 
@@ -125,6 +145,8 @@ Techniques: tenant-leading composite indexes, no per-row joins in aggregates, de
 * No real PSTN/SMS carrier and no audio: "recordings" are metadata (consent state, key, retention), not media.
 * Rate limiter and idempotency cache are in-memory (single node). Interfaces are isolated so Redis can replace them; the runtime engine is also single-process per deployment.
 * Demo override: the campaign calling-window check is disabled while simulating so the dialer works at any hour (stated on the campaign screen).
+* The shared Normal User / Admin logins are demo conveniences. In production each person has a named account (the guest-seat mechanism then simply isn't used); with a shared Admin login the audit log cannot tell people apart.
+* `/api/system/*` (Platform showcase) is available to any company's admin and only exposes that company's traffic plus process-level gauges; in production restrict it to platform operators.
 * Embedded databases are ephemeral and for development only; use Docker/managed MySQL + MongoDB otherwise.
 * Auth is email + password with 12 h JWTs kept in `localStorage` (fine for a demo; use httpOnly cookies + refresh rotation + MFA for production). No password reset flow.
 
@@ -134,9 +156,9 @@ Techniques: tenant-leading composite indexes, no per-row joins in aggregates, de
 server/src  config · boot · app · index
   db/        mysql · mongo · embedded · migrate · migrations/*.sql · seed
   engine/    runtime (dialer, queues, call lifecycle) · hub (WebSocket)
-  routes/    auth admin calls reports developer privacy agent v1 dev
-  services/  reports privacy sms webhooks
-  middleware auth apiKeyAuth rateLimit      lib  tenant errors audit crypto csv rng
-  tests/     unit.test.ts integration.test.ts
+  routes/    auth admin calls reports developer privacy agent system v1 dev
+  services/  reports privacy sms webhooks sessions (guest seats)
+  middleware auth apiKeyAuth rateLimit      lib  tenant errors audit crypto csv rng metrics
+  tests/     unit.test.ts integration.test.ts concurrency.test.ts
 web/src     pages/admin/* pages/agent/* components/ lib/ (api · auth · live WS client)
 ```

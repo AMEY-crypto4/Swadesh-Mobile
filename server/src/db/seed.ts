@@ -121,9 +121,10 @@ export async function seedAll(opts: { scale?: boolean } = {}) {
     // ---- users ----
     const skillsPool = ['hindi', 'english', 'marathi', 'negotiation', 'upsell'];
     const userRows: unknown[][] = [
-      [cid, `admin@${spec.slug}.test`, 'Asha Kulkarni (Admin)', passwordHash, 'admin', null, null, 0],
-      [cid, `supervisor@${spec.slug}.test`, 'Rakesh Menon (Supervisor)', passwordHash, 'supervisor', null, null, 0],
-      [cid, `agent@${spec.slug}.test`, 'Demo Agent (You)', passwordHash, 'agent', '2000', JSON.stringify(['english', 'hindi', 'negotiation']), 0],
+      [cid, `admin@${spec.slug}.test`, 'Asha Kulkarni (Admin)', passwordHash, 'admin', null, null, 0, 0],
+      [cid, `supervisor@${spec.slug}.test`, 'Rakesh Menon (Supervisor)', passwordHash, 'supervisor', null, null, 0, 0],
+      // Shared "Normal User" login: a template. Each sign-in is given a private seat cloned from it (see services/sessions.ts).
+      [cid, `user@${spec.slug}.test`, 'Demo Agent (template)', passwordHash, 'agent', '2000', JSON.stringify(['english', 'hindi', 'negotiation']), 0, 1],
     ];
     const used = new Set<string>();
     for (let i = 0; i < spec.agents - 1; i++) {
@@ -134,9 +135,9 @@ export async function seedAll(opts: { scale?: boolean } = {}) {
       } while (used.has(email));
       used.add(email);
       const skills = JSON.stringify([...new Set(['english', pick(r, skillsPool), pick(r, skillsPool)])]);
-      userRows.push([cid, email, name, passwordHash, 'agent', String(2001 + i), skills, 1]);
+      userRows.push([cid, email, name, passwordHash, 'agent', String(2001 + i), skills, 1, 0]);
     }
-    await bulk('users', ['company_id', 'email', 'name', 'password_hash', 'role', 'extension', 'skills', 'is_bot'], userRows);
+    await bulk('users', ['company_id', 'email', 'name', 'password_hash', 'role', 'extension', 'skills', 'is_bot', 'is_shared_demo'], userRows);
     const agents = (await pool.query("SELECT id, skills FROM users WHERE company_id=? AND role='agent' ORDER BY id", [cid]))[0] as { id: number; skills: string[] }[];
 
     // ---- queues + members ----
@@ -319,7 +320,7 @@ export async function seedAll(opts: { scale?: boolean } = {}) {
   console.log(`[seed] done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
 
-export const DEMO_ACCOUNTS = TENANTS.map((t) => ({ tenant: t.name, admin: `admin@${t.slug}.test`, supervisor: `supervisor@${t.slug}.test`, agent: `agent@${t.slug}.test`, apiKey: t.demoKey }));
+export const DEMO_ACCOUNTS = TENANTS.map((t) => ({ tenant: t.name, admin: `admin@${t.slug}.test`, supervisor: `supervisor@${t.slug}.test`, user: `user@${t.slug}.test`, apiKey: t.demoKey }));
 
 // CLI: `npm run seed` / `npm run seed:scale` against external databases.
 if (process.argv[1]?.endsWith('seed.ts')) {

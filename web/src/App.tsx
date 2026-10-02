@@ -15,14 +15,16 @@ import { Reports } from './pages/admin/Reports';
 import { Developer } from './pages/admin/Developer';
 import { Privacy } from './pages/admin/Privacy';
 import { Audit } from './pages/admin/Audit';
+import { System } from './pages/admin/System';
 import { AgentWorkspace } from './pages/agent/Workspace';
 
-function Guard({ roles, children }: { roles: Role[]; children: ReactNode }) {
+/** Route guard. Only the outermost guard opens the WebSocket (`live`); nested role guards must not open a second one. */
+function Guard({ roles, children, live = true }: { roles: Role[]; children: ReactNode; live?: boolean }) {
   const { user, loading } = useAuth();
   if (loading) return <Spinner label="Restoring session" />;
   if (!user) return <Navigate to="/login" replace />;
   if (!roles.includes(user.role)) return <Navigate to={user.role === 'agent' ? '/agent' : '/'} replace />;
-  return <LiveProvider>{children}</LiveProvider>;
+  return live ? <LiveProvider>{children}</LiveProvider> : <>{children}</>;
 }
 
 export function App() {
@@ -38,9 +40,10 @@ export function App() {
         <Route path="campaigns/:id" element={<CampaignDetail />} />
         <Route path="calls" element={<CallLog />} />
         <Route path="reports" element={<Reports />} />
-        <Route path="developer" element={<Guard roles={['admin']}><Developer /></Guard>} />
+        <Route path="developer" element={<Guard roles={['admin']} live={false}><Developer /></Guard>} />
         <Route path="privacy" element={<Privacy />} />
-        <Route path="audit" element={<Guard roles={['admin']}><Audit /></Guard>} />
+        <Route path="audit" element={<Guard roles={['admin']} live={false}><Audit /></Guard>} />
+        <Route path="system" element={<Guard roles={['admin']} live={false}><System /></Guard>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

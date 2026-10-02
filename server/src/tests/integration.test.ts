@@ -5,6 +5,8 @@
  */
 process.env.SIMULATE = 'false';
 process.env.EXPORT_DIR = 'data/test-exports';
+process.env.MAX_GUEST_SEATS = '8';
+process.env.LOGIN_RATE_LIMIT = '1000';
 
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,7 +50,7 @@ before(async () => {
   await pool.query("UPDATE webhooks SET url = CONCAT(?, '/dev/webhook-sink/', (SELECT slug FROM companies WHERE id = webhooks.company_id)) WHERE url LIKE '%/dev/webhook-sink/%'", [base]);
   tokens.adminA = await login('admin@aarav.test');
   tokens.supA = await login('supervisor@aarav.test');
-  tokens.agentA = await login('agent@aarav.test');
+  tokens.agentA = await login('user@aarav.test');
   tokens.adminB = await login('admin@zenith.test');
 });
 

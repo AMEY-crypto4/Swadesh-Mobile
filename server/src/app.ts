@@ -14,6 +14,8 @@ import { privacyRouter } from './routes/privacy.js';
 import { agentRouter } from './routes/agent.js';
 import { v1Router } from './routes/v1.js';
 import { devRouter } from './routes/dev.js';
+import { systemRouter } from './routes/system.js';
+import { metricsMiddleware } from './lib/metrics.js';
 
 export function createApp() {
   const app = express();
@@ -22,6 +24,7 @@ export function createApp() {
   app.use(cors({ origin: isProd ? false : true }));
   if (!isProd) app.use('/dev', devRouter); // before the JSON parser: the sink needs the raw body to verify signatures
   app.use(express.json({ limit: '2.5mb' }));
+  app.use(metricsMiddleware);
 
   app.get('/healthz', (_req, res) => res.json({ ok: true }));
   app.use('/api/auth', authRouter);
@@ -30,6 +33,7 @@ export function createApp() {
   app.use('/api/reports', reportsRouter);
   app.use('/api/developer', developerRouter);
   app.use('/api/privacy', privacyRouter);
+  app.use('/api/system', systemRouter);
   app.use('/api', adminRouter); // users, queues, campaigns, dnc, dispositions, audit
   app.use('/v1', v1Router);
 

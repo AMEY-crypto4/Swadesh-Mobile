@@ -11,7 +11,7 @@ import { statusTone } from './Campaigns';
 
 interface Rule { outcome: string; action: 'retry_after' | 'mark_done' | 'schedule_callback' | 'add_to_dnc'; action_param: number | null }
 interface Detail {
-  id: number; name: string; mode: 'preview' | 'progressive' | 'predictive'; status: 'draft' | 'running' | 'paused' | 'completed'; queue_name: string;
+  id: number; version: number; name: string; mode: 'preview' | 'progressive' | 'predictive'; status: 'draft' | 'running' | 'paused' | 'completed'; queue_name: string;
   pacing_ratio: number; max_abandon_pct: number; max_attempts: number; retry_delay_minutes: number; ring_timeout_secs: number; caller_id: string;
   rules: Rule[]; leads: Record<string, number>;
 }
@@ -57,8 +57,8 @@ function Settings({ c, canEdit }: { c: Detail; canEdit: boolean }) {
   const qc = useQueryClient(); const toast = useToast();
   const [f, setF] = useState({ mode: c.mode, pacing_ratio: c.pacing_ratio, max_abandon_pct: c.max_abandon_pct, max_attempts: c.max_attempts, retry_delay_minutes: c.retry_delay_minutes, ring_timeout_secs: c.ring_timeout_secs });
   const m = useMutation({
-    mutationFn: () => api(`/campaigns/${c.id}`, { method: 'PATCH', body: f }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['campaign', c.id] }); toast('good', 'Settings saved'); }, onError: (e) => toast('bad', mutationError(e)),
+    mutationFn: () => api(`/campaigns/${c.id}`, { method: 'PATCH', body: { ...f, version: c.version } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['campaign', c.id] }); toast('good', 'Settings saved'); }, onError: (e) => { toast('bad', mutationError(e)); qc.invalidateQueries({ queryKey: ['campaign', c.id] }); },
   });
   const n = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: Number(e.target.value) });
   return (
@@ -84,8 +84,8 @@ function Rules({ c, canEdit }: { c: Detail; canEdit: boolean }) {
   const [rules, setRules] = useState<Rule[]>(c.rules);
   useEffect(() => setRules(c.rules), [c.rules]);
   const m = useMutation({
-    mutationFn: () => api(`/campaigns/${c.id}/rules`, { method: 'PUT', body: rules }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['campaign', c.id] }); toast('good', 'Rules saved'); }, onError: (e) => toast('bad', mutationError(e)),
+    mutationFn: () => api(`/campaigns/${c.id}/rules`, { method: 'PUT', body: rules, query: { version: c.version } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['campaign', c.id] }); toast('good', 'Rules saved'); }, onError: (e) => { toast('bad', mutationError(e)); qc.invalidateQueries({ queryKey: ['campaign', c.id] }); },
   });
   const set = (i: number, patch: Partial<Rule>) => setRules(rules.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   return (

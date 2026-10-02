@@ -8,6 +8,12 @@ import { pauseRecording, resumeRecording, getSettings } from '../services/privac
 
 export const agentRouter = Router();
 agentRouter.use(requireAuth, requireRole('agent'));
+// A guest seat can be reclaimed (sign-out / idle). Its token is then dead: make the client sign in again instead of acting as a ghost.
+agentRouter.use((req, _res, next) => {
+  const a = ctx(req);
+  if (!runtime.get(a.companyId).hasAgent(a.userId)) return next(new HttpError(401, 'Your agent seat has ended. Please sign in again.', 'session_expired'));
+  next();
+});
 
 const callId = z.coerce.number().int().positive();
 

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api, setUnauthorizedHandler, tokenStore } from './api';
 
 export type Role = 'admin' | 'supervisor' | 'agent';
-export interface User { id: number; name: string; email: string; role: Role }
+export interface User { id: number; name: string; email: string; role: Role; /** true when this browser holds a private guest agent seat on the shared Normal User login */ seat?: boolean }
 export interface Company { id: number; name: string; slug: string; tz_offset_minutes?: number }
 
 interface AuthState {
@@ -18,7 +18,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(!!tokenStore.get());
 
-  const logout = useCallback(() => { tokenStore.clear(); setUser(null); setCompany(null); }, []);
+  const logout = useCallback(() => {
+    // Release a guest seat right away so capacity frees up; best-effort, the idle reaper is the backstop.
+    if (tokenStore.get()) void api('/auth/logout', { method: 'POST', body: {} }).catch(() => {});
+    tokenStore.clear(); setUser(null); setCompany(null);
+  }, []);
 
   useEffect(() => {
     setUnauthorizedHandler(logout);

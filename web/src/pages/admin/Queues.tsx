@@ -8,7 +8,7 @@ import { Badge, Button, Card, ErrorBanner, Field, Modal, Notice, PageHeader, Sel
 
 interface Queue {
   id: number; name: string; strategy: string; sla_seconds: number; max_wait_seconds: number; wrap_up_seconds: number; required_skill: string | null;
-  recording_consent_mode: 'none' | 'announce' | 'opt_in'; active: number; members: number[];
+  recording_consent_mode: 'none' | 'announce' | 'opt_in'; active: number; members: number[]; version: number;
 }
 interface TeamUser { id: number; name: string; role: string; status: string; skills: string[] | null }
 
@@ -68,10 +68,10 @@ function QueueForm({ queue, readOnly, onClose }: { queue: Queue | null; readOnly
   const save = useMutation({
     mutationFn: () => {
       const body = { ...f, required_skill: f.required_skill.trim() || null };
-      return queue ? api(`/queues/${queue.id}`, { method: 'PATCH', body }) : api('/queues', { body });
+      return queue ? api(`/queues/${queue.id}`, { method: 'PATCH', body: { ...body, version: queue.version } }) : api('/queues', { body });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['queues'] }); toast('good', 'Queue saved'); onClose(); },
-    onError: (e) => toast('bad', mutationError(e)),
+    onError: (e) => { toast('bad', mutationError(e)); qc.invalidateQueries({ queryKey: ['queues'] }); }, // on a version conflict, pull the latest so the next attempt starts from it
   });
   const agents = (users.data ?? []).filter((u) => u.role === 'agent' && u.status === 'active');
   const num = (k: 'sla_seconds' | 'max_wait_seconds' | 'wrap_up_seconds') => (e: { target: { value: string } }) => setF({ ...f, [k]: Number(e.target.value) });

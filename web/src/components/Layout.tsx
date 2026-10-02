@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import clsx from 'clsx';
-import { Activity, BookOpen, Code2, History, LayoutDashboard, ListOrdered, LogOut, Megaphone, ShieldCheck, Users, Wifi, WifiOff, Radio } from 'lucide-react';
+import { Activity, BookOpen, Code2, Gauge, History, LayoutDashboard, ListOrdered, LogOut, Megaphone, ShieldCheck, Users, Wifi, WifiOff, Radio } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { useLive, useNow } from '../lib/live';
 
@@ -28,6 +28,7 @@ const NAV = [
   { to: '/developer', label: 'Developer', icon: Code2, roles: ['admin'] },
   { to: '/privacy', label: 'Privacy & compliance', icon: ShieldCheck, roles: ['admin', 'supervisor'] },
   { to: '/audit', label: 'Audit log', icon: BookOpen, roles: ['admin'] },
+  { to: '/system', label: 'Platform showcase', icon: Gauge, roles: ['admin'] },
 ];
 
 export function SimulationBanner() {

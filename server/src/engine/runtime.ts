@@ -225,6 +225,12 @@ export class TenantRuntime {
     };
   }
 
+  /** Aggregate numbers an agent may see about the floor: queue load and team state counts (no names, no numbers). */
+  private boardSnapshot() {
+    const s = this.stats();
+    return { queues: [...this.queues.values()].map((q) => this.queueView(q)), team: s.agentsByState, activeCalls: s.activeCalls, waiting: s.waiting };
+  }
+
   /** What a single human agent's workspace needs. */
   me(userId: number) {
     const a = this.agents.get(userId);
@@ -233,7 +239,7 @@ export class TenantRuntime {
     return {
       seq: this.seq, now: Date.now(), simulated: config.simulate, agent: this.agentView(a),
       call: call ? { ...call, timers: undefined, from: call.from, to: call.to, customerName: call.customerName, queueName: this.queues.get(call.queueId)?.name, campaignName: call.campaignId ? this.campaigns.get(call.campaignId)?.name : null } : null,
-      wrapCallId: a.wrapCallId ?? null, preview: a.preview ?? null,
+      wrapCallId: a.wrapCallId ?? null, preview: a.preview ?? null, board: this.boardSnapshot(),
       queues: a.queueIds.map((id) => this.queues.get(id)).filter(Boolean).map((q) => ({ id: q!.id, name: q!.name, waiting: q!.waiting.length })),
     };
   }
@@ -654,7 +660,9 @@ export class TenantRuntime {
       }
     }
     if (config.simulate) await this.dialerTick();
-    this.emit({ type: 'queue.counts', queues: [...this.queues.values()].map((q) => this.queueView(q)) });
+    const qv = [...this.queues.values()].map((q) => this.queueView(q));
+    this.emit({ type: 'queue.counts', queues: qv });
+    hub.broadcastAgents(this.companyId, { type: 'board', queues: qv, team: this.stats().agentsByState, activeCalls: this.stats().activeCalls, waiting: this.stats().waiting });
     if (now - this.lastStats >= 2000) {
       this.lastStats = now;
       this.emit({ type: 'stats', stats: this.stats(), campaigns: [...this.campaigns.values()].map((c) => this.campaignView(c)) });

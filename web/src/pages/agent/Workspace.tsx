@@ -4,8 +4,8 @@ import { Circle, Coffee, Headphones, LogOut, Mic, MicOff, Phone, PhoneIncoming, 
 import clsx from 'clsx';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { fmtDateTime, fmtDur, title } from '../../lib/format';
-import { useLive, useNow, type MeCall } from '../../lib/live';
+import { fmtDateTime, fmtDur, fmtTime, title } from '../../lib/format';
+import { useLive, useLiveFeed, useNow, type MeCall } from '../../lib/live';
 import { ConnectionChip, SimulationBanner } from '../../components/Layout';
 import { AGENT_STATE, Badge, Button, Card, CardHeader, Empty, ErrorBanner, Field, Modal, Notice, Select, StateBadge, Table, TextInput, mutationError, useToast } from '../../components/ui';
 
@@ -55,11 +55,8 @@ export function AgentWorkspace() {
               {state === 'offline' && <p className="text-xs text-slate-500">You are offline and will not receive calls.</p>}
             </div>
           </Card>
-          <Card>
-            <CardHeader title="My queues" />
-            <ul className="divide-y divide-slate-100 text-sm">{me?.queues.map((q) => <li key={q.id} className="flex justify-between px-4 py-2"><span>{q.name}</span><span className={clsx('tabular-nums', q.waiting > 0 && 'font-semibold text-amber-700')}>{q.waiting} waiting</span></li>)}</ul>
-            {me && me.queues.length === 0 && <Empty>You are not a member of any queue.</Empty>}
-          </Card>
+          <QueueBoard />
+          <LiveUpdates />
         </aside>
 
         <section className="space-y-4" aria-live="polite">
@@ -216,6 +213,43 @@ function Wrap({ callId, dispositions }: { callId: number; dispositions: AgentMe[
         <ErrorBanner error={submit.error} />
         <Button type="submit" variant="primary" disabled={!code} busy={submit.isPending}>Save & become available</Button>
       </form>
+    </Card>
+  );
+}
+
+function QueueBoard() {
+  const { board, me } = useLive();
+  const mine = new Set(me?.queues.map((q) => q.id));
+  const rows = (board?.queues ?? []).filter((q) => mine.has(q.id));
+  const t = board?.team;
+  return (
+    <Card>
+      <CardHeader title="Live queue board" subtitle="Pushed to you every second over the WebSocket" />
+      {rows.length === 0 ? <Empty>{board ? 'You are not a member of any queue.' : 'Waiting for live data…'}</Empty> : (
+        <ul className="divide-y divide-slate-100 text-sm">
+          {rows.map((q) => (
+            <li key={q.id} className="px-4 py-2">
+              <div className="flex items-center justify-between"><span className="font-medium">{q.name}</span>{q.waiting > 0 ? <Badge tone="amber">{q.waiting} waiting</Badge> : <span className="text-xs text-slate-400">no wait</span>}</div>
+              <div className="mt-0.5 text-xs text-slate-500">{q.agentsAvailable} of {q.agentsStaffed} agents free{q.waiting > 0 ? ` · longest wait ${fmtDur(q.longestWaitSecs)}` : ''} · service level {q.serviceLevelPct === null ? '—' : `${q.serviceLevelPct}%`}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {t && <div className="flex flex-wrap gap-1.5 border-t border-slate-100 px-4 py-2.5 text-xs"><Badge tone="green">{t.available} available</Badge><Badge tone="blue">{t.on_call} on call</Badge><Badge tone="purple">{t.wrap_up} wrap-up</Badge><Badge tone="orange">{t.break} on break</Badge><span className="self-center text-slate-500">{board.activeCalls} live calls</span></div>}
+    </Card>
+  );
+}
+
+function LiveUpdates() {
+  const feed = useLiveFeed();
+  const perSec = feed.recent.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  return (
+    <Card>
+      <CardHeader title="Live updates" subtitle={`${feed.total.toLocaleString('en-IN')} received · ${perSec.toFixed(1)}/s`} />
+      <ul className="divide-y divide-slate-100 font-mono text-[11px]">
+        {feed.items.slice(0, 6).map((f) => <li key={f.n} className="flex justify-between px-4 py-1.5"><span className="text-slate-400">{fmtTime(new Date(f.t))}</span><span className="font-semibold text-slate-700">{f.type}</span><span className="text-slate-500">{f.bytes} B</span></li>)}
+      </ul>
+      {feed.items.length === 0 && <Empty>Waiting for the first update…</Empty>}
     </Card>
   );
 }

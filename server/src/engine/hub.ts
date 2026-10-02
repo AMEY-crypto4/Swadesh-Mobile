@@ -124,6 +124,14 @@ class Hub {
     }
   }
 
+  /** To the agents (Normal users) of exactly one tenant: aggregate-only data, never other people's details. */
+  broadcastAgents(companyId: number, msg: Msg) {
+    let raw: string | undefined;
+    for (const c of this.clients) {
+      if (c.auth && c.auth.companyId === companyId && c.auth.role === 'agent') this.sendRaw(c, (raw ??= JSON.stringify(msg)), msg.type);
+    }
+  }
+
   sendToUser(companyId: number, userId: number, msg: Msg) {
     let raw: string | undefined;
     for (const c of this.clients) {

@@ -17,14 +17,16 @@ export interface MeState {
   queues: { id: number; name: string; waiting: number }[]; simulated?: boolean;
 }
 
+export interface BoardState { queues: LiveQueue[]; team: Record<AgentState, number>; activeCalls: number; waiting: number }
+
 export type Connection = 'connecting' | 'live' | 'reconnecting';
 
 interface LiveState {
   connection: Connection; lastMessageAt: number; simulated: boolean;
   agents: LiveAgent[]; queues: LiveQueue[]; calls: LiveCall[]; campaigns: LiveCampaign[]; stats: LiveStats | null;
-  me: MeState | null;
+  me: MeState | null; board: BoardState | null;
 }
-const empty: LiveState = { connection: 'connecting', lastMessageAt: 0, simulated: true, agents: [], queues: [], calls: [], campaigns: [], stats: null, me: null };
+const empty: LiveState = { connection: 'connecting', lastMessageAt: 0, simulated: true, agents: [], queues: [], calls: [], campaigns: [], stats: null, me: null, board: null };
 const Ctx = createContext<LiveState>(empty);
 export const useLive = () => useContext(Ctx);
 
@@ -134,8 +136,9 @@ function reduce(s: LiveState, m: any, now: number): LiveState {
   switch (m.type) {
     case 'snapshot':
       if (m.agents) { return { ...base, connection: 'live', simulated: m.simulated, agents: m.agents, queues: m.queues, calls: m.calls, campaigns: m.campaigns, stats: m.stats }; }
-      return { ...base, me: m, simulated: m.simulated ?? s.simulated };
-    case 'me': return { ...base, me: m };
+      return { ...base, me: m, board: m.board ?? s.board, simulated: m.simulated ?? s.simulated };
+    case 'me': return { ...base, me: m, board: m.board ?? s.board };
+    case 'board': return { ...base, board: { queues: m.queues, team: m.team, activeCalls: m.activeCalls, waiting: m.waiting } };
     case 'agent.state': return { ...base, agents: s.agents.some((a) => a.id === m.agent.id) ? s.agents.map((a) => (a.id === m.agent.id ? m.agent : a)) : [...s.agents, m.agent] };
     case 'agent.removed': return { ...base, agents: s.agents.filter((a) => a.id !== m.id) };
     case 'queue.counts': return { ...base, queues: m.queues };

@@ -224,3 +224,26 @@ test('server-side load generator: admin only, bounded, and the server really ser
   ]);
   assert.deepEqual([one.status, two.status].sort(), [200, 409]);
 });
+
+test('agents receive an aggregate-only live board over the WebSocket; admins and other tenants do not get it', async () => {
+  const seat = (await login('user@aarav.test')).json;
+  const admin = (await login('admin@aarav.test')).json;
+  const other = (await login('user@zenith.test')).json;
+  const a = listen(seat.token), ad = listen(admin.token), o = listen(other.token);
+  await Promise.all([a.ready(), ad.ready(), o.ready()]);
+  await sleep(2600);
+
+  const snap = a.frames.find((f) => f.type === 'snapshot');
+  assert.ok(snap.board && snap.board.queues.length > 0, 'the first snapshot already carries the board');
+  const boards = a.frames.filter((f) => f.type === 'board');
+  assert.ok(boards.length >= 2, `board pushed repeatedly (${boards.length} frames in ~2.6 s)`);
+  const q = boards.at(-1).queues[0];
+  assert.ok('waiting' in q && 'agentsAvailable' in q && 'serviceLevelPct' in q);
+  assert.ok(!/\+\d{8,}/.test(JSON.stringify(boards.at(-1))), 'no phone numbers in the board');
+  assert.ok(!boards.at(-1).agents, 'no per-agent detail in the board');
+  assert.equal(ad.frames.filter((f) => f.type === 'board').length, 0, 'admins use their own richer stream, not the agent board');
+  const zQueues = new Set(o.frames.filter((f) => f.type === 'board').flatMap((f) => f.queues.map((x: any) => x.name)));
+  assert.ok(!zQueues.has('Sales') && zQueues.size > 0, "another company's agents only ever see their own company's queues");
+  for (const s of [a, ad, o]) s.ws.close();
+  for (const s of [seat, other]) await req('/api/auth/logout', { token: s.token, body: {} });
+});

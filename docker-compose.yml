@@ -1,0 +1,32 @@
+# Real databases for local development / staging.
+#   docker compose up -d
+#   cp server/.env.example server/.env      # already points at these containers
+#   npm run seed && npm run dev:all
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: swadesh_cc
+      MYSQL_USER: swadesh
+      MYSQL_PASSWORD: swadesh
+      MYSQL_ROOT_PASSWORD: root
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--innodb-buffer-pool-size=512M"]
+    ports: ["3306:3306"]
+    volumes: ["mysql-data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      retries: 20
+
+  mongo:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes: ["mongo-data:/data/db"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  mysql-data:
+  mongo-data:

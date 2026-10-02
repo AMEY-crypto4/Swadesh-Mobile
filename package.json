@@ -1,0 +1,19 @@
+{
+  "name": "swadesh-cc",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Multi-tenant contact-centre platform: admin console, agent workspace, dialer, real-time wallboards, developer API, privacy tooling.",
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "dev": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "dev:scale": "npm run dev:scale -w server",
+    "dev:all": "concurrently -n api,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
+    "seed": "npm run seed -w server",
+    "seed:scale": "npm run seed:scale -w server",
+    "test": "npm test -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "build": "npm run build -w web"
+  },
+  "devDependencies": { "concurrently": "^9.0.0" }
+}
